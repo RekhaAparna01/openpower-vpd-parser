@@ -1,5 +1,6 @@
 #pragma once
 
+#include <boost/asio/steady_timer.hpp>
 #include <sdbusplus/asio/connection.hpp>
 
 namespace vpd
@@ -15,9 +16,9 @@ namespace vpd
 class GpioEventHandler
 {
   public:
-    GpioEventHandler() = delete;
-    ~GpioEventHandler() = delete;
-    GpioEventHandler(const GpioEventHandler&) = delete;
+    GpioEventHandler() = default;
+    ~GpioEventHandler() = default;
+    GpioEventHandler(const GpioEventHandler&) = default;
     GpioEventHandler& operator=(const GpioEventHandler&) = delete;
     GpioEventHandler(GpioEventHandler&&) = delete;
     GpioEventHandler& operator=(GpioEventHandler&&) = delete;
@@ -30,16 +31,18 @@ class GpioEventHandler
      * @param[in] i_outputPin - GPIO output pin
      * @param[in] i_outputValue - value of the output pin
      * @param[in] i_inventoryPath - inventory path of the FRU.
+     * @param[in] i_bindCmd - Command to bind the driver.
      * @param[in] i_ioContext - pointer to the io context object
      */
     GpioEventHandler(
         const std::string& i_presencePin, const bool& i_presenceValue,
         const std::string& i_outputPin, const bool& i_outputValue,
-        const std::string& i_inventoryPath,
+        const std::string& i_inventoryPath, std::string& i_bindCmd,
         const std::shared_ptr<boost::asio::io_context>& i_ioContext) :
         m_presencePin(i_presencePin),
         m_presenceValue(i_presenceValue), m_outputPin(i_outputPin),
-        m_outputValue(i_outputValue), m_inventoryPath(i_inventoryPath)
+        m_outputValue(i_outputValue), m_inventoryPath(i_inventoryPath),
+        m_bindorUnbindCmd(i_bindCmd)
     {
         setEventHandlerForGpioPresence(i_ioContext);
     }
@@ -73,6 +76,33 @@ class GpioEventHandler
     void setEventHandlerForGpioPresence(
         const std::shared_ptr<boost::asio::io_context>& i_ioContext);
 
+    /**
+     * @brief API to handle timer expiry for GPIO pin
+     *
+     * This API handles timer expiry for GPIO pins and checks on the GPIO
+     * presence state, takes action if there is any change in the GPIO presence
+     * value.
+     *
+     * @param[in] i_errorCode - Error Code
+     * @param[in] i_timerObj - Pointer to timer Object.
+     */
+    void handleTimerExpiry(
+        const boost::system::error_code& i_errorCode,
+        const std::shared_ptr<boost::asio::steady_timer>& i_timerObj);
+
+    /**
+     * @brief API to detect change in GPIO presence value
+     *
+     * An API to check whether there is a change in GPIO presence pin
+     * value.
+     *
+     * @return true, if change in GPIO presence value, otherwise false.
+     */
+    inline bool hasEventOccurred()
+    {
+        return getPresencePinValue() != m_prevPresencePinValue;
+    }
+
     // Indicates presence/absence of fru
     const std::string& m_presencePin;
 
@@ -87,6 +117,12 @@ class GpioEventHandler
 
     // Inventory path of the FRU
     const std::string& m_inventoryPath;
+
+    // Preserves the GPIO pin value to compare. Default value is false.
+    bool m_prevPresencePinValue = false;
+
+    // Command to bind or unbind the driver.
+    std::string& m_bindorUnbindCmd;
 };
 
 } // namespace vpd
