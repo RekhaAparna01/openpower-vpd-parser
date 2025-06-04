@@ -19,7 +19,6 @@ corrupt_format = [("missingVtoc", 61, b'\x49\x56', "ERROR"),
                         ("ZeroDdimmSize", 235, b'\x00', "ERROR")]
 
 
-
 def createCorruptedFiles(src_file_path, dest_name, offset, new_bytes):
     dest_file_path = os.path.join(EEPROM_BASE_PATH, dest_name, "eeprom")
     os.makedirs(os.path.dirname(dest_file_path), exist_ok=True)
