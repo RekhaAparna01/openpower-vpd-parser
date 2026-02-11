@@ -679,44 +679,54 @@ inline bool isPass1Planar() noexcept
     bool l_rc{false};
     try
     {
-        auto l_retVal = dbusUtility::readDbusProperty(
+        const auto l_hwVar = dbusUtility::readDbusProperty(
             constants::pimServiceName, constants::systemVpdInvPath,
             constants::viniInf, constants::kwdHW);
 
-        auto l_hwVer = std::get_if<types::BinaryVector>(&l_retVal);
+        const auto l_hwVer = std::get_if<types::BinaryVector>(&l_hwVar);
+        if (l_hwVer == nullptr)
+        {
+            logging::logMessage("Failed to read HW keyword from PIM");
+            return l_rc;
+        }
 
-        l_retVal = dbusUtility::readDbusProperty(
-            constants::pimServiceName, constants::systemInvPath,
+        const auto l_imVar = dbusUtility::readDbusProperty(
+            constants::pimServiceName, constants::systemVpdInvPath,
             constants::vsbpInf, constants::kwdIM);
 
-        auto l_imValue = std::get_if<types::BinaryVector>(&l_retVal);
-
-        if (l_hwVer && l_imValue)
+        const auto l_imValue = std::get_if<types::BinaryVector>(&l_imVar);
+        if (l_imValue == nullptr)
         {
-            if (l_hwVer->size() != constants::VALUE_2)
-            {
-                throw std::runtime_error("Invalid HW keyword length.");
-            }
+            logging::logMessage("Failed to read IM keyword from PIM");
+            return l_rc;
+        }
 
-            if (l_imValue->size() != constants::VALUE_4)
-            {
-                throw std::runtime_error("Invalid IM keyword length.");
-            }
+        if (l_hwVer->size() != constants::VALUE_2)
+        {
+            logging::logMessage("HW keyword read from PIM has invalid size");
 
-            const types::BinaryVector l_everest{80, 00, 48, 00};
-            const types::BinaryVector l_fuji{96, 00, 32, 00};
+            return l_rc;
+        }
 
-            if (((*l_imValue) == l_everest) || ((*l_imValue) == l_fuji))
-            {
-                if ((*l_hwVer).at(1) < constants::VALUE_21)
-                {
-                    l_rc = true;
-                }
-            }
-            else if ((*l_hwVer).at(1) < constants::VALUE_2)
+        if (l_imValue->size() != constants::VALUE_4)
+        {
+            logging::logMessage("IM keyword read from PIM has invalid size");
+            return l_rc;
+        }
+
+        const types::BinaryVector l_everest{80, 00, 48, 00};
+        const types::BinaryVector l_fuji{96, 00, 32, 00};
+
+        if (((*l_imValue) == l_everest) || ((*l_imValue) == l_fuji))
+        {
+            if ((*l_hwVer).at(1) < constants::VALUE_21)
             {
                 l_rc = true;
             }
+        }
+        else if ((*l_hwVer).at(1) < constants::VALUE_2)
+        {
+            l_rc = true;
         }
     }
     catch (const std::exception& l_ex)
