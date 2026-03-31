@@ -834,20 +834,20 @@ inline bool isPowerVsImage()
 }
 
 /**
- * @brief API to sync keyword update to inherited FRUs.
+ * @brief API to sync keyword update to sub FRUs.
  *
  * For a given keyword update on a EEPROM path, this API syncs the keyword
- * update to all inherited FRUs' respective interface, property on PIM.
+ * updates to respective interface, property on PIM for all inherited FRUs' and
+ * if the record is part of copyRecord tag for sub FRUs.
  *
  * @param[in] i_fruPath - EEPROM path of FRU.
  * @param[in] i_paramsToWriteData - Input details.
  * @param[in] i_sysCfgJsonObj - System config JSON.
  *
  */
-inline void updateKwdOnInheritedFrus(
-    const std::string& i_fruPath,
-    const types::WriteVpdParams& i_paramsToWriteData,
-    const nlohmann::json& i_sysCfgJsonObj) noexcept
+inline void updateKwdOnSubFrus(const std::string& i_fruPath,
+                               const types::WriteVpdParams& i_paramsToWriteData,
+                               const nlohmann::json& i_sysCfgJsonObj) noexcept
 {
     try
     {
@@ -871,17 +871,26 @@ inline void updateKwdOnInheritedFrus(
         }
         //  iterate through all inventory paths for given EEPROM path,
         //  except the base FRU.
-        //  if for an inventory path, "inherit" tag is true,
-        //  update the inventory path's com.ibm.ipzvpd.<record>,keyword
-        //  property
+        //  if for an inventory path, "inherit" tag is true OR the record
+        //  is part of "copyRecords" tag, update the inventory path's
+        //  com.ibm.ipzvpd.<record>,keyword property
 
         types::ObjectMap l_objectInterfaceMap;
 
         auto l_populateInterfaceMap =
             [&l_objectInterfaceMap,
              &l_ipzData = std::as_const(l_ipzData)](const auto& l_Fru) {
-                // update inherited FRUs only
-                if (l_Fru.value("inherit", true))
+                // check if record is part of copyRecords list.
+                const bool l_recordFound =
+                    l_Fru.contains("copyRecords") &&
+                    std::find(l_Fru["copyRecords"].begin(),
+                              l_Fru["copyRecords"].end(),
+                              std::get<0>(*l_ipzData)) !=
+                        l_Fru["copyRecords"].end();
+
+                // update for inherited FRUs or if the record is part of
+                // copyRecord tag
+                if (l_Fru.value("inherit", true) || l_recordFound)
                 {
                     l_objectInterfaceMap.emplace(
                         sdbusplus::message::object_path{l_Fru["inventoryPath"]},
@@ -931,13 +940,19 @@ inline void updateKwdOnInheritedFrus(
  * the record and keyword. An empty map is returned if no such common
  * interface(s) and properties are found.
  */
-inline types::InterfaceMap getCommonInterfaceProperties(
+inline types::InterfaceMap getInterfaceProperties(
     const types::WriteVpdParams& i_paramsToWriteData,
-    const nlohmann::json& i_commonInterfaceJson) noexcept
+    const nlohmann::json& i_interfaceJson) noexcept
 {
     types::InterfaceMap l_interfaceMap;
     try
     {
+        if (i_interfaceJson.empty())
+        {
+            logging::logMessage("Empty input parameters.");
+            return l_interfaceMap;
+        }
+
         const types::IpzData* l_ipzData =
             std::get_if<types::IpzData>(&i_paramsToWriteData);
 
@@ -949,11 +964,24 @@ inline types::InterfaceMap getCommonInterfaceProperties(
         auto l_populateInterfaceMap = [&l_ipzData = std::as_const(l_ipzData),
                                        &l_interfaceMap](
                                           const auto& l_interfacesPropPair) {
-            // find matching property value pair
+            // Skip if value is null or not an object to handle extraInterfaces
+            // flag which may have null values for certain interfaces
+            if (l_interfacesPropPair.value().is_null() ||
+                !l_interfacesPropPair.value().is_object())
+            {
+                return; // continue to next iteration
+            }
+
             const auto l_matchPropValuePairIt = std::find_if(
                 l_interfacesPropPair.value().items().begin(),
                 l_interfacesPropPair.value().items().end(),
                 [&l_ipzData](const auto& l_propValuePair) {
+                    // Check if value is an object before accessing
+                    // properties
+                    if (!l_propValuePair.value().is_object())
+                    {
+                        return false;
+                    }
                     return (l_propValuePair.value().value("recordName", "") ==
                                 std::get<0>(*l_ipzData) &&
                             l_propValuePair.value().value("keywordName", "") ==
@@ -977,9 +1005,8 @@ inline types::InterfaceMap getCommonInterfaceProperties(
         };
 
         // iterate through all common interfaces and populate interface map
-        std::for_each(i_commonInterfaceJson.items().begin(),
-                      i_commonInterfaceJson.items().end(),
-                      l_populateInterfaceMap);
+        std::for_each(i_interfaceJson.items().begin(),
+                      i_interfaceJson.items().end(), l_populateInterfaceMap);
     }
     catch (const std::exception& l_ex)
     {
@@ -1038,7 +1065,7 @@ inline void updateCiPropertyOfInheritedFrus(
 
         types::ObjectMap l_objectInterfaceMap;
 
-        const types::InterfaceMap l_interfaceMap = getCommonInterfaceProperties(
+        const types::InterfaceMap l_interfaceMap = getInterfaceProperties(
             i_paramsToWriteData, i_sysCfgJsonObj["commonInterfaces"]);
 
         if (l_interfaceMap.empty())
@@ -1151,6 +1178,111 @@ inline void resetObjTreeVpd(const std::string& i_vpdPath,
         logging::logMessage(
             "Failed to reset FRU data on DBus for FRU [" + i_vpdPath +
             "], error : " + std::string(l_ex.what()));
+    }
+
+}
+
+/**
+ * @brief API to update extra interface(s) properties when keyword is updated.
+ *
+ * For a given keyword update on a EEPROM path, this API syncs the keyword
+ * update to respective extra interface(s) properties.
+ *
+ * @param[in] i_fruPath - EEPROM path of FRU.
+ * @param[in] i_paramsToWriteData - Input details.
+ * @param[in] i_sysCfgJsonObj - System config JSON.
+ * @param[out] o_errCode - To set error code in case of error.
+ */
+inline void updatePropertyOnExtraInterfaces(
+    const std::string& i_fruPath,
+    const types::WriteVpdParams& i_paramsToWriteData,
+    const nlohmann::json& i_sysCfgJsonObj) noexcept
+{
+    const std::vector<std::string> l_listofInterfacesToUpdate{
+        constants::assetInf, constants::networkInterface};
+
+    try
+    {
+        if (i_fruPath.empty() || i_sysCfgJsonObj.empty())
+        {
+            logging::logMessage("Empty input parameters");
+            return;
+        }
+
+        if (!i_sysCfgJsonObj.contains("frus"))
+        {
+            logging::logMessage("Mandatory tag missing from JSON.");
+            return;
+        }
+
+        if (!i_sysCfgJsonObj["frus"].contains(i_fruPath))
+        {
+            logging::logMessage("FRU path not found in JSON : " + i_fruPath);
+            return;
+        }
+
+        if (!std::get_if<types::IpzData>(&i_paramsToWriteData))
+        {
+            logging::logMessage("Unsupported VPD type");
+            return;
+        }
+
+        types::ObjectMap l_objectInterfaceMap;
+
+        auto l_populateObjectInterfaceMap = [&l_listofInterfacesToUpdate,
+                                             &l_objectInterfaceMap,
+                                             &i_paramsToWriteData](const auto& l_Fru) {
+            if (l_Fru.contains("extraInterfaces"))
+            {
+                const auto& l_extraInterfaces = l_Fru["extraInterfaces"];
+                nlohmann::json l_interfaceJson{};
+
+                // Get the list of interfaces to be updated
+                for (const auto& l_interface : l_listofInterfacesToUpdate)
+                {
+                    if (auto l_iterator = l_extraInterfaces.find(l_interface);
+                        l_iterator != l_extraInterfaces.end())
+                    {
+                        l_interfaceJson[l_interface] = l_iterator.value();
+                    }
+                }
+
+                if (l_interfaceJson.empty())
+                {
+                    return;
+                }
+
+                const types::InterfaceMap l_interfaceMap =
+                    getInterfaceProperties(i_paramsToWriteData, l_interfaceJson);
+                
+                if (!l_interfaceMap.empty())
+                {
+                    l_objectInterfaceMap.emplace(
+                        sdbusplus::message::object_path{l_Fru["inventoryPath"]},
+                        l_interfaceMap);
+                }
+            }
+        };
+
+        std::for_each(i_sysCfgJsonObj["frus"][i_fruPath].begin(),
+                      i_sysCfgJsonObj["frus"][i_fruPath].end(),
+                      l_populateObjectInterfaceMap);
+
+        if (!l_objectInterfaceMap.empty())
+        {
+            // notify PIM
+            if (!dbusUtility::callPIM(move(l_objectInterfaceMap)))
+            {
+                logging::logMessage("Failed to publish under PIM");
+                return;
+            }
+        }
+    }
+    catch (const std::exception& l_ex)
+    {
+        logging::logMessage(
+            "Failed to update property on extra interfaces, error : " +
+            std::string(l_ex.what()));
     }
 }
 } // namespace vpdSpecificUtility
