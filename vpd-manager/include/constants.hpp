@@ -222,6 +222,8 @@ static constexpr auto systemdManagerInterface =
     "org.freedesktop.systemd1.Manager";
 
 static constexpr auto vpdCollectionInterface = "com.ibm.VPD.Collection";
+static constexpr auto networkInterface =
+    "xyz.openbmc_project.Inventory.Item.NetworkInterface";
 
 // enumerated values of CollectionStatus D-bus property defined under
 // com.ibm.VPD.Collection interface.

@@ -257,8 +257,8 @@ int Manager::updateKeyword(const types::Path i_vpdPath,
         // update keyword in inherited FRUs
         if (l_rc != constants::FAILURE)
         {
-            vpdSpecificUtility::updateKwdOnInheritedFrus(
-                l_fruPath, l_writeParams, l_sysCfgJsonObj, l_errCode);
+            vpdSpecificUtility::updateKwdOnSubFrus(l_fruPath, l_writeParams,
+                                                   l_sysCfgJsonObj, l_errCode);
 
             if (l_errCode)
             {
@@ -279,6 +279,20 @@ int Manager::updateKeyword(const types::Path i_vpdPath,
             {
                 logging::logMessage(
                     "Failed to update Ci property of inherited FRUs, error : " +
+                    commonUtility::getErrCodeMsg(l_errCode));
+            }
+        }
+
+        // update extra interface(s) properties for FRUs
+        if (l_rc != constants::FAILURE)
+        {
+            vpdSpecificUtility::updatePropertyOnExtraInterfaces(
+                l_fruPath, l_writeParams, l_sysCfgJsonObj, l_errCode);
+
+            if (l_errCode)
+            {
+                logging::logMessage(
+                    "Failed to update extra interface properties, error : " +
                     commonUtility::getErrCodeMsg(l_errCode));
             }
         }
