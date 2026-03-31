@@ -240,14 +240,21 @@ int Manager::updateKeyword(const types::Path i_vpdPath,
         // update keyword in inherited FRUs
         if (l_rc != constants::FAILURE)
         {
-            vpdSpecificUtility::updateKwdOnInheritedFrus(
-                l_fruPath, l_writeParams, l_sysCfgJsonObj);
+            vpdSpecificUtility::updateKwdOnSubFrus(l_fruPath, l_writeParams,
+                                                   l_sysCfgJsonObj);
         }
 
         // update common interface(s) properties
         if (l_rc != constants::FAILURE)
         {
             vpdSpecificUtility::updateCiPropertyOfInheritedFrus(
+                l_fruPath, l_writeParams, l_sysCfgJsonObj);
+        }
+
+        // update extra interface(s) properties for FRUs
+        if (l_rc != constants::FAILURE)
+        {
+            vpdSpecificUtility::updatePropertyOnExtraInterfaces(
                 l_fruPath, l_writeParams, l_sysCfgJsonObj);
         }
 
