@@ -256,6 +256,12 @@ int Manager::updateKeyword(const types::Path i_vpdPath,
         {
             vpdSpecificUtility::updatePropertyOnExtraInterfaces(
                 l_fruPath, l_writeParams, l_sysCfgJsonObj);
+
+            if (l_fruPath == SYSTEM_VPD_FILE_PATH)
+            {
+                vpdSpecificUtility::checkAndUpdateLocCode(l_sysCfgJsonObj,
+                                                          i_paramsToWriteData);
+            }
         }
 
         return l_rc;
